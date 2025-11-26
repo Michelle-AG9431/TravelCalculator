@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>旅費分帳 - 文青水彩版</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            font-family: 'Noto Serif TC', serif;
+            background: #fdfbf7; /* 紙張原色 */
+            background-image: 
+                radial-gradient(at 10% 10%, rgba(255, 220, 220, 0.4) 0px, transparent 50%),
+                radial-gradient(at 90% 0%, rgba(200, 230, 255, 0.4) 0px, transparent 50%),
+                radial-gradient(at 50% 90%, rgba(220, 255, 220, 0.4) 0px, transparent 50%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: #4a4a4a;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+        }
+        .watercolor-btn {
+            background-image: linear-gradient(120deg, #a1c4fd 0%, #c2e9fb 100%);
+            transition: all 0.3s ease;
+        }
+        .watercolor-btn:active {
+            transform: scale(0.95);
+        }
+        .category-tag {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: rgba(0,0,0,0.05);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
+    </style>
+</head>
+<body class="pb-24">
+
+<div id="app" class="max-w-md mx-auto p-4 relative min-h-screen">
+
+    <div v-if="!currentUser" class="flex flex-col items-center justify-center h-[80vh] space-y-6 animate-fade-in">
+        <h1 class="text-3xl font-bold text-gray-700 tracking-widest">旅費 · 隨筆</h1>
+        <p class="text-sm text-gray-500">紀錄旅行中的每一筆美好</p>
+        
+        <div class="glass-card p-8 w-full">
+            <label class="block mb-2 text-sm text-gray-600">你的名字</label>
+            <input v-model="loginName" type="text" class="w-full p-3 rounded-lg bg-white/50 border border-gray-200 focus:outline-none focus:border-blue-300 mb-4" placeholder="輸入暱稱...">
+            
+            <label class="block mb-2 text-sm text-gray-600">選擇頭像</label>
+            <div class="grid grid-cols-5 gap-2 mb-6">
+                <button v-for="avi in avatars" :key="avi" @click="selectedAvatar = avi"
+                    :class="{'ring-2 ring-blue-300 bg-blue-50': selectedAvatar === avi}"
+                    class="text-2xl p-2 rounded-full hover:bg-gray-100 transition">
+                    {{ avi }}
+                </button>
+            </div>
+
+            <button @click="login" :disabled="!loginName" class="w-full watercolor-btn text-gray-700 font-bold py-3 rounded-xl shadow-md disabled:opacity-50">
+                開始旅程
+            </button>
+        </div>
+    </div>
+
+    <div v-else>
+        <header class="flex justify-between items-center mb-6 pt-2">
+            <div class="flex items-center gap-3">
+                <div class="text-3xl bg-white rounded-full p-1 shadow-sm">{{ currentUser.avatar }}</div>
+                <div>
+                    <div class="font-bold text-lg">{{ currentUser.name }}</div>
+                    <div v-if="currentTrip" class="text-xs text-gray-500 cursor-pointer" @click="currentTrip = null">
+                        <i class="fas fa-chevron-left"></i> 回到行程列表
+                    </div>
+                </div>
+            </div>
+            <button @click="showSettlement = true" v-if="currentTrip" class="text-sm bg-white/80 px-3 py-1.5 rounded-full shadow-sm text-gray-600">
+                <i class="fas fa-calculator"></i> 結算
+            </button>
+        </header>
+
+        <div v-if="!currentTrip" class="space-y-4">
+            <h2 class="text-xl font-bold text-gray-700 mb-4">我的旅程</h2>
+            
+            <div @click="showNewTripModal = true" class="glass-card p-6 flex flex-col items-center justify-center border-dashed border-2 border-gray-300 cursor-pointer hover:bg-white/90 transition text-gray-400">
+                <i class="fas fa-plus text-2xl mb-2"></i>
+                <span>開啟一段新旅程</span>
+            </div>
+
+            <div v-for="trip in trips" :key="trip.id" @click="selectTrip(trip)" class="glass-card p-5 cursor-pointer hover:scale-[1.02] transition relative overflow-hidden">
+                <div class="absolute -right-4 -top-4 text-6xl opacity-10 rotate-12">✈️</div>
+                <h3 class="text-lg font-bold text-gray-800">{{ trip.name }}</h3>
+                <p class="text-xs text-gray-500 mt-1">{{ formatDate(trip.startDate) }} - {{ formatDate(trip.endDate) }}</p>
+                <div class="mt-3 flex -space-x-2">
+                    <div v-for="u in trip.users" :key="u.name" class="w-6 h-6 rounded-full bg-gray-200 border-2 border-white flex items-center justify-center text-xs">
+                        {{ u.avatar }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-else>
+            <div class="glass-card p-4 mb-4 bg-gradient-to-r from-blue-50 to-purple-50">
+                <p class="text-xs text-gray-500">目前總支出 (TWD)</p>
+                <p class="text-3xl font-bold text-gray-800 font-sans tracking-tight">NT$ {{ formatMoney(totalTripExpense) }}</p>
+                <div class="flex gap-2 mt-2 overflow-x-auto pb-1">
+                     <span v-for="(amt, cat) in categoryTotals" :key="cat" class="category-tag whitespace-nowrap">
+                        {{ cat }}: ${{ formatMoney(amt) }}
+                     </span>
+                </div>
+            </div>
+
+            <div class="space-y-3 pb-20">
+                <div v-for="exp in tripExpenses" :key="exp.id" class="glass-card p-4 flex justify-between items-center group">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl shadow-inner">
+                            {{ getCategoryIcon(exp.category) }}
+                        </div>
+                        <div>
+                            <p class="font-bold text-gray-700 leading-tight">{{ exp.note || exp.category }}</p>
+                            <p class="text-xs text-gray-400 mt-0.5">
+                                {{ exp.payer.name }} 付款 • {{ exp.date }}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="font-bold text-gray-800">NT$ {{ formatMoney(exp.amountTWD) }}</p>
+                        <p class="text-xs text-gray-400" v-if="exp.currency !== 'TWD'">
+                            {{ exp.currency }} {{ exp.originalAmount }}
+                        </p>
+                    </div>
+                </div>
+                <div v-if="tripExpenses.length === 0" class="text-center text-gray-400 mt-10">
+                    <i class="fas fa-pen-fancy text-4xl mb-3 opacity-30"></i>
+                    <p>尚未有任何花費紀錄</p>
+                </div>
+            </div>
+
+            <div class="fixed bottom-6 left-0 right-0 flex justify-center z-50">
+                <button @click="openAddExpense" class="watercolor-btn text-gray-800 rounded-full px-8 py-4 shadow-lg flex items-center gap-2 transform hover:-translate-y-1 transition font-bold text-lg">
+                    <i class="fas fa-plus"></i> 新增費用
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="showNewTripModal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-card p-6 w-full max-w-sm">
+            <h3 class="text-xl font-bold mb-4">建立新旅程</h3>
+            <input v-model="newTrip.name" class="w-full p-2 mb-3 bg-white/50 border rounded" placeholder="旅程名稱 (如: 大阪行)">
+            <div class="flex gap-2 mb-4">
+                <input v-model="newTrip.startDate" type="date" class="w-1/2 p-2 bg-white/50 border rounded">
+                <input v-model="newTrip.endDate" type="date" class="w-1/2 p-2 bg-white/50 border rounded">
+            </div>
+            <div class="flex justify-end gap-2">
+                <button @click="showNewTripModal = false" class="px-4 py-2 text-gray-500">取消</button>
+                <button @click="createTrip" class="px-6 py-2 bg-blue-200 rounded-lg font-bold">建立</button>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="showExpenseModal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center">
+        <div class="glass-card w-full max-w-md rounded-b-none sm:rounded-2xl p-6 h-[85vh] sm:h-auto overflow-y-auto animate-slide-up">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">記一筆</h3>
+                <button @click="showExpenseModal = false" class="text-gray-400"><i class="fas fa-times text-xl"></i></button>
+            </div>
+
+            <div class="flex gap-2 mb-4">
+                <div class="w-1/3">
+                    <label class="text-xs text-gray-500 block mb-1">幣別</label>
+                    <select v-model="newExp.currency" @change="updateRate" class="w-full p-3 bg-white border border-gray-200 rounded-lg appearance-none">
+                        <option v-for="c in currencies" :value="c">{{ c }}</option>
+                    </select>
+                </div>
+                <div class="w-2/3">
+                    <label class="text-xs text-gray-500 block mb-1">金額</label>
+                    <input v-model.number="newExp.amount" type="number" class="w-full p-3 bg-white border border-gray-200 rounded-lg text-lg font-bold text-right" placeholder="0">
+                </div>
+            </div>
+
+            <div class="mb-4 bg-gray-50 p-3 rounded-lg flex justify-between items-center">
+                <span class="text-xs text-gray-500">匯率 (1 {{newExp.currency}} = ? TWD)</span>
+                <input v-model.number="newExp.rate" type="number" step="0.01" class="w-20 bg-transparent text-right border-b border-gray-300 focus:outline-none text-sm">
+            </div>
+            <p class="text-right text-sm font-bold text-gray-700 mb-4">
+                ≈ NT$ {{ formatMoney(Math.round(newExp.amount * newExp.rate)) }}
+            </p>
+
+            <div class="grid grid-cols-5 gap-2 mb-4">
+                <div v-for="cat in categories" :key="cat.name" 
+                     @click="newExp.category = cat.name"
+                     :class="{'bg-blue-100 border-blue-300': newExp.category === cat.name}"
+                     class="flex flex-col items-center p-2 rounded-lg border border-transparent cursor-pointer transition">
+                    <div class="text-xl mb-1">{{ cat.icon }}</div>
+                    <span class="text-[10px]">{{ cat.name }}</span>
+                </div>
+            </div>
+
+            <input v-model="newExp.note" class="w-full p-3 bg-white border border-gray-200 rounded-lg mb-4" placeholder="備註 (如: 晚餐、車票...)">
+
+            <div class="mb-4">
+                <label class="text-xs text-gray-500 block mb-2">誰先付的？</label>
+                <div class="flex gap-2 overflow-x-auto pb-1">
+                    <button v-for="u in currentTrip.users" :key="u.name"
+                        @click="newExp.payer = u"
+                        :class="{'ring-2 ring-blue-400 bg-blue-50': newExp.payer.name === u.name}"
+                        class="flex items-center gap-2 px-3 py-2 rounded-full border bg-white min-w-max">
+                        <span>{{ u.avatar }}</span>
+                        <span class="text-sm">{{ u.name }}</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-6">
+                <label class="text-xs text-gray-500 block mb-2">分給誰？</label>
+                <div class="flex gap-2 mb-2">
+                    <button @click="toggleSplitAll(true)" class="text-xs px-2 py-1 bg-gray-200 rounded">全選</button>
+                    <button @click="toggleSplitAll(false)" class="text-xs px-2 py-1 bg-gray-200 rounded">全不選</button>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div v-for="u in currentTrip.users" :key="u.name + 'split'" 
+                         @click="toggleSplitUser(u)"
+                         :class="{'bg-green-50 border-green-300': newExp.splitTo.includes(u.name)}"
+                         class="flex items-center gap-2 p-2 rounded border border-gray-200 cursor-pointer">
+                        <div v-if="newExp.splitTo.includes(u.name)" class="text-green-500"><i class="fas fa-check-circle"></i></div>
+                        <div v-else class="text-gray-300"><i class="far fa-circle"></i></div>
+                        <span class="text-sm">{{ u.name }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <button @click="saveExpense" class="w-full watercolor-btn py-3 rounded-xl font-bold text-gray-800 shadow-md">
+                儲存費用
+            </button>
+        </div>
+    </div>
+
+    <div v-if="showSettlement" class="fixed inset-0 bg-white z-50 overflow-y-auto p-6 animate-fade-in">
+        <div class="max-w-md mx-auto">
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-2xl font-bold">結算報表</h2>
+                <button @click="showSettlement = false" class="p-2 bg-gray-100 rounded-full"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="space-y-6">
+                <div v-if="debts.length > 0">
+                    <h3 class="font-bold text-gray-600 mb-3 border-l-4 border-blue-300 pl-2">建議轉帳</h3>
+                    <div v-for="(debt, idx) in debts" :key="idx" class="glass-card p-4 flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-red-500">{{ debt.from }}</span>
+                            <i class="fas fa-arrow-right text-gray-300"></i>
+                            <span class="font-bold text-green-600">{{ debt.to }}</span>
+                        </div>
+                        <div class="font-bold text-lg">NT$ {{ formatMoney(debt.amount) }}</div>
+                    </div>
+                </div>
+                <div v-else class="text-center text-gray-400 py-4">目前收支平衡，無需轉帳！</div>
+
+                <hr class="border-gray-200">
+
+                <div>
+                    <h3 class="font-bold text-gray-600 mb-3 border-l-4 border-purple-300 pl-2">個人收支詳情</h3>
+                    <div v-for="stat in userStats" :key="stat.name" class="glass-card p-4 mb-3">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">{{ stat.avatar }}</span>
+                                <span class="font-bold">{{ stat.name }}</span>
+                            </div>
+                            <span :class="stat.balance >= 0 ? 'text-green-600' : 'text-red-500'" class="font-bold">
+                                {{ stat.balance >= 0 ? '收' : '付' }} NT$ {{ formatMoney(Math.abs(stat.balance)) }}
+                            </span>
+                        </div>
+                        <div class="text-xs text-gray-500 flex justify-between">
+                            <span>先墊付: {{ formatMoney(stat.paid) }}</span>
+                            <span>應分攤: {{ formatMoney(stat.share) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // --- 【步驟 1】請在此處填入你的 FIREBASE 設定 ---
+    const firebaseConfig = {
+  apiKey: "AIzaSyBSMNzpBI4SiECFCEt_HUaYoaGb1_gaLSI",
+  authDomain: "travelcalculator-10c81.firebaseapp.com",
+  projectId: "travelcalculator-10c81",
+  storageBucket: "travelcalculator-10c81.firebasestorage.app",
+  messagingSenderId: "776646417150",
+  appId: "1:776646417150:web:e8be691a3eb7ad8d1723af",
+  measurementId: "G-N1G80VWVT7"
+};
+
+    // 初始化 Firebase
+    // 如果使用者還沒填入 key，這裡會報錯，我們做個簡單的檢查
+    let db;
+    if (firebaseConfig.apiKey === "YOUR_API_KEY") {
+        alert("請先在 index.html 程式碼中填入您的 Firebase Config！(請看程式碼第 265 行)");
+    } else {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+    }
+
+    const { createApp, ref, computed, onMounted, watch } = Vue;
+
+    createApp({
+        setup() {
+            // --- 狀態變數 ---
+            const currentUser = ref(JSON.parse(localStorage.getItem('travel_user')) || null);
+            const loginName = ref('');
+            const selectedAvatar = ref('🦊');
+            const avatars = ['🦊', '🐱', '🐶', '🐰', '🐻', '🐼', '🐨', '🐯', '🐷', '🐸'];
+            
+            const trips = ref([]);
+            const currentTrip = ref(null);
+            const tripExpenses = ref([]);
+            
+            // Modal 控制
+            const showNewTripModal = ref(false);
+            const showExpenseModal = ref(false);
+            const showSettlement = ref(false);
+
+            // 匯率 API (使用免費 API，這裡做簡單緩存)
+            const currencies = ['TWD', 'USD', 'EUR', 'JPY', 'KRW', 'THB', 'HKD'];
+            const exchangeRates = ref({ TWD: 1 }); // 以 TWD 為基準
+
+            // 新增資料結構
+            const newTrip = ref({ name: '', startDate: '', endDate: '' });
+            const categories = [
+                {name: '交通', icon: '🚄'}, 
+                {name: '飲食', icon: '🍜'}, 
+                {name: '住宿', icon: '🏨'}, 
+                {name: '門票', icon: '🎟️'}, 
+                {name: '購物', icon: '🛍️'},
+                {name: '其他', icon: '✨'}
+            ];
+            
+            const newExp = ref({
+                amount: null,
+                currency: 'TWD',
+                rate: 1,
+                category: '飲食',
+                note: '',
+                payer: null,
+                splitTo: [] // array of names
+            });
+
+            // --- 方法 ---
+
+            // 1. 登入 (簡易版：存 LocalStorage)
+            const login = () => {
+                const user = { name: loginName.value, avatar: selectedAvatar.value };
+                currentUser.value = user;
+                localStorage.setItem('travel_user', JSON.stringify(user));
+                loadTrips();
+            };
+
+            // 2. 獲取匯率
+            const fetchRates = async () => {
+                try {
+                    // 使用 ExchangeRate-API (免費版)
+                    const res = await fetch('https://open.er-api.com/v6/latest/TWD');
+                    const data = await res.json();
+                    // API 回傳的是 1 TWD = ? 外幣，我們需要 1 外幣 = ? TWD
+                    // 所以是 1 / rate
+                    currencies.forEach(c => {
+                        if (data.rates[c]) {
+                            // 這裡我們預設存入的是 "1單位外幣等於多少台幣"
+                            // 例如 USD rate 若是 0.03 (1 TWD = 0.03 USD), 則 1 USD = 33.3 TWD
+                            exchangeRates.value[c] = 1 / data.rates[c];
+                        }
+                    });
+                } catch (e) {
+                    console.error("匯率抓取失敗，使用預設值", e);
+                }
+            };
+
+            // 3. Firebase 操作：讀取旅程
+            const loadTrips = () => {
+                if(!db) return;
+                db.collection('trips').orderBy('createdAt', 'desc').onSnapshot(snap => {
+                    trips.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                });
+            };
+
+            // 4. 建立旅程
+            const createTrip = async () => {
+                if(!newTrip.value.name) return;
+                const tripData = {
+                    name: newTrip.value.name,
+                    startDate: newTrip.value.startDate,
+                    endDate: newTrip.value.endDate,
+                    users: [currentUser.value], // 初始只有創建者
+                    createdAt: new Date().toISOString()
+                };
+                
+                // 寫入 Firestore
+                const docRef = await db.collection('trips').add(tripData);
+                showNewTripModal.value = false;
+                newTrip.value = { name: '', startDate: '', endDate: '' };
+            };
+
+            // 5. 選擇旅程並進入
+            const selectTrip = (trip) => {
+                currentTrip.value = trip;
+                // 如果自己不在這個旅程的 users 列表裡，把自己加進去 (簡單的加入機制)
+                const isMember = trip.users.find(u => u.name === currentUser.value.name);
+                if (!isMember) {
+                    const updatedUsers = [...trip.users, currentUser.value];
+                    db.collection('trips').doc(trip.id).update({ users: updatedUsers });
+                    currentTrip.value.users = updatedUsers;
+                }
+                loadExpenses(trip.id);
+            };
+
+            // 6. 讀取費用
+            const loadExpenses = (tripId) => {
+                db.collection('expenses')
+                  .where('tripId', '==', tripId)
+                  .orderBy('date', 'desc') // 需建立索引，若報錯先拿掉 orderBy
+                  .onSnapshot(snap => {
+                      tripExpenses.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                  });
+            };
+
+            // 7. 開啟新增費用視窗
+            const openAddExpense = () => {
+                // 重置表單
+                newExp.value = {
+                    amount: null,
+                    currency: 'TWD',
+                    rate: 1,
+                    category: '飲食',
+                    note: '',
+                    payer: currentUser.value, // 預設自己付
+                    splitTo: currentTrip.value.users.map(u => u.name) // 預設平分給所有人
+                };
+                showExpenseModal.value = true;
+            };
+
+            // 8. 更新匯率
+            const updateRate = () => {
+                const cur = newExp.value.currency;
+                if(exchangeRates.value[cur]) {
+                    newExp.value.rate = parseFloat(exchangeRates.value[cur].toFixed(2));
+                }
+            };
+
+            // 9. 儲存費用
+            const saveExpense = async () => {
+                if(!newExp.value.amount) return;
+                
+                const expenseData = {
+                    tripId: currentTrip.value.id,
+                    amountTWD: Math.round(newExp.value.amount * newExp.value.rate),
+                    originalAmount: newExp.value.amount,
+                    currency: newExp.value.currency,
+                    rate: newExp.value.rate,
+                    category: newExp.value.category,
+                    note: newExp.value.note,
+                    payer: newExp.value.payer,
+                    splitTo: newExp.value.splitTo,
+                    date: new Date().toLocaleDateString('zh-TW'),
+                    timestamp: new Date().toISOString()
+                };
+
+                await db.collection('expenses').add(expenseData);
+                showExpenseModal.value = false;
+            };
+
+            // 輔助功能
+            const toggleSplitUser = (user) => {
+                const idx = newExp.value.splitTo.indexOf(user.name);
+                if(idx > -1) newExp.value.splitTo.splice(idx, 1);
+                else newExp.value.splitTo.push(user.name);
+            };
+
+            const toggleSplitAll = (select) => {
+                if(select) newExp.value.splitTo = currentTrip.value.users.map(u => u.name);
+                else newExp.value.splitTo = [];
+            };
+
+            const formatDate = (d) => d ? d.replace(/-/g, '/') : '';
+            const formatMoney = (n) => n ? n.toLocaleString() : '0';
+            const getCategoryIcon = (catName) => {
+                const cat = categories.find(c => c.name === catName);
+                return cat ? cat.icon : '💰';
+            };
+
+            // --- 計算邏輯 (Computed) ---
+
+            const totalTripExpense = computed(() => {
+                return tripExpenses.value.reduce((sum, item) => sum + item.amountTWD, 0);
+            });
+
+            const categoryTotals = computed(() => {
+                const totals = {};
+                tripExpenses.value.forEach(exp => {
+                    totals[exp.category] = (totals[exp.category] || 0) + exp.amountTWD;
+                });
+                return totals;
+            });
+
+            // 核心結算邏輯
+            const userStats = computed(() => {
+                if(!currentTrip.value) return [];
+                const stats = {};
+                // 初始化
+                currentTrip.value.users.forEach(u => {
+                    stats[u.name] = { name: u.name, avatar: u.avatar, paid: 0, share: 0, balance: 0 };
+                });
+
+                tripExpenses.value.forEach(exp => {
+                    // 誰付了錢 (Credit)
+                    if(stats[exp.payer.name]) {
+                        stats[exp.payer.name].paid += exp.amountTWD;
+                    }
+
+                    // 誰該分攤 (Debit)
+                    const splitCount = exp.splitTo.length;
+                    if(splitCount > 0) {
+                        const shareAmount = exp.amountTWD / splitCount;
+                        exp.splitTo.forEach(name => {
+                            if(stats[name]) {
+                                stats[name].share += shareAmount;
+                            }
+                        });
+                    }
+                });
+
+                // 計算 Balance (正數代表該收錢，負數代表該付錢)
+                Object.values(stats).forEach(s => {
+                    s.balance = s.paid - s.share;
+                });
+
+                return Object.values(stats);
+            });
+
+            const debts = computed(() => {
+                // 簡化版債務計算演算法
+                let debtors = userStats.value.filter(s => s.balance < -1).map(s => ({...s})); // 欠錢的
+                let creditors = userStats.value.filter(s => s.balance > 1).map(s => ({...s})); // 收錢的
+                
+                // 排序，從大到小處理
+                debtors.sort((a,b) => a.balance - b.balance);
+                creditors.sort((a,b) => b.balance - a.balance);
+
+                const transactions = [];
+                let i = 0, j = 0;
+
+                while (i < debtors.length && j < creditors.length) {
+                    let debtor = debtors[i];
+                    let creditor = creditors[j];
+                    
+                    // 找出交易金額 (取欠款和應收的最小值)
+                    let amount = Math.min(Math.abs(debtor.balance), creditor.balance);
+                    
+                    transactions.push({
+                        from: debtor.name,
+                        to: creditor.name,
+                        amount: Math.round(amount)
+                    });
+
+                    debtor.balance += amount;
+                    creditor.balance -= amount;
+
+                    if(Math.abs(debtor.balance) < 1) i++;
+                    if(creditor.balance < 1) j++;
+                }
+                return transactions;
+            });
+
+            onMounted(() => {
+                fetchRates();
+                if(currentUser.value) loadTrips();
+            });
+
+            return {
+                currentUser, loginName, avatars, selectedAvatar, login,
+                trips, currentTrip, showNewTripModal, newTrip, createTrip, selectTrip,
+                formatDate, formatMoney, getCategoryIcon,
+                tripExpenses, totalTripExpense, categoryTotals,
+                showExpenseModal, openAddExpense, showSettlement,
+                currencies, newExp, categories, updateRate, saveExpense,
+                toggleSplitUser, toggleSplitAll,
+                userStats, debts
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
