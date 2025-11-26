@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>旅費分帳 Trave Split</title>
+    <title>旅費分帳App Trave Split</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -62,7 +62,7 @@
 <div id="app" class="max-w-md mx-auto p-4 relative min-h-screen">
 
     <div v-if="!currentUser" class="flex flex-col items-center justify-center h-[80vh] space-y-6">
-        <h1 class="text-3xl font-bold text-gray-700 tracking-widest">旅費輕鬆結算</h1>
+        <h1 class="text-3xl font-bold text-gray-700 tracking-widest">旅費隨意記</h1>
         <p class="text-sm text-gray-500">紀錄旅行中的每一筆美好</p>
         <div class="glass-card p-8 w-full">
             <label class="block mb-2 text-sm text-gray-600">你的名字</label>
@@ -485,3 +485,304 @@
                         if (data.rates[c]) rates[c] = parseFloat((1 / data.rates[c]).toFixed(2));
                     });
                     rates['TWD'] = 1;
+                    return rates;
+                } catch (e) { console.error(e); return null; }
+            };
+
+            const initRates = async () => {
+                const rates = await getApiRates();
+                if(rates) exchangeRates.value = rates;
+            };
+
+            const loadTrips = () => {
+                if(!db) return;
+                db.collection('trips').orderBy('createdAt', 'desc').onSnapshot(snap => {
+                    trips.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                });
+            };
+
+            // Modal 操作
+            const openNewTripModal = () => {
+                tripForm.value = { id: null, name: '', startDate: '', endDate: '' };
+                showTripModal.value = true;
+            };
+
+            const openEditTripModal = (trip) => {
+                tripForm.value = { 
+                    id: trip.id, 
+                    name: trip.name, 
+                    startDate: trip.startDate, 
+                    endDate: trip.endDate 
+                };
+                showTripModal.value = true;
+            };
+
+            const createTrip = async () => {
+                if(!tripForm.value.name) return;
+                const tripData = {
+                    name: tripForm.value.name,
+                    startDate: tripForm.value.startDate,
+                    endDate: tripForm.value.endDate,
+                    users: [currentUser.value],
+                    savedRates: exchangeRates.value,
+                    createdAt: new Date().toISOString()
+                };
+                await db.collection('trips').add(tripData);
+                showTripModal.value = false;
+            };
+
+            const updateTrip = async () => {
+                if(!tripForm.value.id) return;
+                await db.collection('trips').doc(tripForm.value.id).update({
+                    name: tripForm.value.name,
+                    startDate: tripForm.value.startDate,
+                    endDate: tripForm.value.endDate
+                });
+                showTripModal.value = false;
+            };
+
+            // 刪除行程與關聯費用 (Batch Delete)
+            const deleteTrip = async (trip) => {
+                if(!confirm(`確定要刪除「${trip.name}」嗎？\n\n警告：這將會一併刪除該旅程內的所有費用紀錄，且無法復原！`)) return;
+                
+                try {
+                    // 1. 先找出所有該 Trip 的 expenses
+                    const snap = await db.collection('expenses').where('tripId', '==', trip.id).get();
+                    
+                    // Firestore Batch 寫入 (一次最多 500 筆，這裡假設不會超過)
+                    const batch = db.batch();
+                    
+                    // 標記刪除所有 expenses
+                    snap.docs.forEach(doc => {
+                        batch.delete(doc.ref);
+                    });
+                    
+                    // 標記刪除 trip 本體
+                    const tripRef = db.collection('trips').doc(trip.id);
+                    batch.delete(tripRef);
+
+                    // 執行
+                    await batch.commit();
+                    alert("刪除成功！");
+                } catch (e) {
+                    console.error("刪除失敗", e);
+                    alert("刪除失敗，請看 Console");
+                }
+            };
+
+            const selectTrip = (trip) => {
+                currentTrip.value = trip;
+                const isMember = trip.users.find(u => u.name === currentUser.value.name);
+                if (!isMember) {
+                    const updatedUsers = [...trip.users, currentUser.value];
+                    db.collection('trips').doc(trip.id).update({ users: updatedUsers });
+                    currentTrip.value.users = updatedUsers;
+                }
+                if (trip.savedRates) exchangeRates.value = trip.savedRates;
+                loadExpenses(trip.id);
+            };
+
+            const exitTrip = () => {
+                currentTrip.value = null;
+                tripExpenses.value = [];
+            }
+
+            const openManagement = () => {
+                editingRates.value = JSON.parse(JSON.stringify(exchangeRates.value));
+                showManagementModal.value = true;
+            };
+
+            const fetchLiveRatesForManagement = async () => {
+                const rates = await getApiRates();
+                if(rates) {
+                    editingRates.value = rates;
+                    alert("匯率已更新至最新市價，請記得按下「儲存設定」！");
+                }
+            };
+
+            const saveManagementSettings = async () => {
+                if(!currentTrip.value) return;
+                exchangeRates.value = JSON.parse(JSON.stringify(editingRates.value));
+                await db.collection('trips').doc(currentTrip.value.id).update({
+                    savedRates: editingRates.value
+                });
+                showManagementModal.value = false;
+            };
+
+            const loadExpenses = (tripId) => {
+                db.collection('expenses').where('tripId', '==', tripId).onSnapshot(snap => {
+                      let list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                      list.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                      tripExpenses.value = list;
+                  });
+            };
+
+            const openAddExpense = () => {
+                if(isTripReadOnly.value) return;
+                isEditing.value = false;
+                currentExpenseId.value = null;
+                let initialCustom = {};
+                currentTrip.value.users.forEach(u => initialCustom[u.name] = 0);
+                newExp.value = {
+                    amount: null, currency: 'TWD', rate: 1, category: '飲食', note: '', payer: currentUser.value,
+                    splitMethod: 'equal', splitTo: currentTrip.value.users.map(u => u.name), customAmounts: initialCustom
+                };
+                showExpenseModal.value = true;
+            };
+
+            const openEditExpense = (exp) => {
+                // 即使是唯讀，也可以打開查看，但按鈕會被藏起來
+                isEditing.value = true;
+                currentExpenseId.value = exp.id;
+                let loadedCustom = exp.customAmounts || {};
+                currentTrip.value.users.forEach(u => { if(loadedCustom[u.name] === undefined) loadedCustom[u.name] = 0; });
+                newExp.value = {
+                    amount: exp.originalAmount, currency: exp.currency, rate: exp.rate, category: exp.category, note: exp.note, payer: exp.payer,
+                    splitMethod: exp.splitMethod || 'equal', splitTo: [...(exp.splitTo || [])], customAmounts: loadedCustom
+                };
+                showExpenseModal.value = true;
+            };
+
+            const updateRateFromSettings = () => {
+                const cur = newExp.value.currency;
+                if(exchangeRates.value[cur]) {
+                    newExp.value.rate = parseFloat(exchangeRates.value[cur]);
+                }
+            };
+
+            const remainingAmount = computed(() => {
+                if(!newExp.value.amount) return 0;
+                let assigned = 0;
+                for (let name in newExp.value.customAmounts) assigned += (newExp.value.customAmounts[name] || 0);
+                return parseFloat((newExp.value.amount - assigned).toFixed(2));
+            });
+
+            const getExpenseDataObj = () => {
+                 return {
+                    amountTWD: Math.round(newExp.value.amount * newExp.value.rate),
+                    originalAmount: newExp.value.amount,
+                    currency: newExp.value.currency,
+                    rate: newExp.value.rate,
+                    category: newExp.value.category,
+                    note: newExp.value.note,
+                    payer: newExp.value.payer,
+                    splitMethod: newExp.value.splitMethod,
+                    splitTo: newExp.value.splitTo,
+                    customAmounts: newExp.value.customAmounts
+                };
+            };
+
+            const saveExpense = async () => {
+                if(!newExp.value.amount) return;
+                const baseData = getExpenseDataObj();
+                const expenseData = { ...baseData, tripId: currentTrip.value.id, date: new Date().toLocaleDateString('zh-TW'), timestamp: new Date().toISOString() };
+                await db.collection('expenses').add(expenseData);
+                showExpenseModal.value = false;
+            };
+
+            const updateExpense = async () => {
+                if(!currentExpenseId.value) return;
+                const expenseData = getExpenseDataObj();
+                await db.collection('expenses').doc(currentExpenseId.value).update(expenseData);
+                showExpenseModal.value = false;
+            };
+
+            const deleteExpense = async () => {
+                if(!currentExpenseId.value) return;
+                if(confirm('確定要刪除這筆費用嗎？刪除後無法復原喔！')) {
+                    await db.collection('expenses').doc(currentExpenseId.value).delete();
+                    showExpenseModal.value = false;
+                }
+            };
+
+            const toggleSplitUser = (user) => {
+                const idx = newExp.value.splitTo.indexOf(user.name);
+                if(idx > -1) newExp.value.splitTo.splice(idx, 1);
+                else newExp.value.splitTo.push(user.name);
+            };
+
+            const toggleSplitAll = (select) => {
+                if(select) newExp.value.splitTo = currentTrip.value.users.map(u => u.name);
+                else newExp.value.splitTo = [];
+            };
+
+            const formatDate = (d) => d ? d.replace(/-/g, '/') : '';
+            const formatMoney = (n) => n ? n.toLocaleString() : '0';
+            const getCategoryIcon = (catName) => {
+                const cat = categories.find(c => c.name === catName);
+                return cat ? cat.icon : '💰';
+            };
+
+            const totalTripExpense = computed(() => tripExpenses.value.reduce((sum, item) => sum + item.amountTWD, 0));
+            const categoryTotals = computed(() => {
+                const totals = {};
+                tripExpenses.value.forEach(exp => totals[exp.category] = (totals[exp.category] || 0) + exp.amountTWD);
+                return totals;
+            });
+
+            const userStats = computed(() => {
+                if(!currentTrip.value) return [];
+                const stats = {};
+                currentTrip.value.users.forEach(u => stats[u.name] = { name: u.name, avatar: u.avatar, paid: 0, share: 0, balance: 0 });
+                tripExpenses.value.forEach(exp => {
+                    if(stats[exp.payer.name]) stats[exp.payer.name].paid += exp.amountTWD;
+                    if (exp.splitMethod === 'custom') {
+                        if(exp.customAmounts) {
+                            for(let name in exp.customAmounts) {
+                                if(stats[name]) stats[name].share += Math.round((exp.customAmounts[name] || 0) * exp.rate);
+                            }
+                        }
+                    } else {
+                        const splitCount = (exp.splitTo || []).length;
+                        if(splitCount > 0) {
+                            const shareAmount = exp.amountTWD / splitCount;
+                            (exp.splitTo || []).forEach(name => { if(stats[name]) stats[name].share += shareAmount; });
+                        }
+                    }
+                });
+                Object.values(stats).forEach(s => s.balance = s.paid - s.share);
+                return Object.values(stats);
+            });
+
+            const debts = computed(() => {
+                let debtors = userStats.value.filter(s => s.balance < -1).map(s => ({...s}));
+                let creditors = userStats.value.filter(s => s.balance > 1).map(s => ({...s}));
+                debtors.sort((a,b) => a.balance - b.balance);
+                creditors.sort((a,b) => b.balance - a.balance);
+                const transactions = [];
+                let i = 0, j = 0;
+                while (i < debtors.length && j < creditors.length) {
+                    let debtor = debtors[i];
+                    let creditor = creditors[j];
+                    let amount = Math.min(Math.abs(debtor.balance), creditor.balance);
+                    transactions.push({ from: debtor.name, to: creditor.name, amount: Math.round(amount) });
+                    debtor.balance += amount;
+                    creditor.balance -= amount;
+                    if(Math.abs(debtor.balance) < 1) i++;
+                    if(creditor.balance < 1) j++;
+                }
+                return transactions;
+            });
+
+            onMounted(() => {
+                initRates();
+                if(currentUser.value) loadTrips();
+            });
+
+            return {
+                currentUser, loginName, avatars, selectedAvatar, login,
+                trips, currentTrip, tripExpenses, totalTripExpense, categoryTotals,
+                showTripModal, showExpenseModal, showSettlement, showManagementModal,
+                openNewTripModal, openEditTripModal, createTrip, updateTrip, deleteTrip, selectTrip, exitTrip,
+                isTripReadOnly, // Export logic
+                tripForm, currencies, newExp, categories, updateRateFromSettings, saveExpense,
+                toggleSplitUser, toggleSplitAll, userStats, debts,
+                openEditExpense, isEditing, updateExpense, deleteExpense, remainingAmount,
+                openManagement, fetchLiveRatesForManagement, editingRates, saveManagementSettings,
+                formatDate, formatMoney, getCategoryIcon
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
