@@ -14,7 +14,7 @@
     <style>
         body {
             font-family: 'Noto Serif TC', serif;
-            background: #fdfbf7; /* 紙張原色 */
+            background: #fdfbf7;
             background-image: 
                 radial-gradient(at 10% 10%, rgba(255, 220, 220, 0.4) 0px, transparent 50%),
                 radial-gradient(at 90% 0%, rgba(200, 230, 255, 0.4) 0px, transparent 50%),
@@ -37,23 +37,32 @@
         .watercolor-btn:active {
             transform: scale(0.95);
         }
+        .delete-btn {
+            background-image: linear-gradient(120deg, #fbc2eb 0%, #a6c1ee 100%); /* 比較偏紅紫色的漸層 */
+        }
         .category-tag {
             font-size: 0.75rem;
             padding: 2px 8px;
             border-radius: 12px;
             background: rgba(0,0,0,0.05);
         }
-        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
+        .animate-slide-up {
+            animation: slideUp 0.3s ease-out;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
     </style>
 </head>
 <body class="pb-24">
 
 <div id="app" class="max-w-md mx-auto p-4 relative min-h-screen">
 
-    <div v-if="!currentUser" class="flex flex-col items-center justify-center h-[80vh] space-y-6 animate-fade-in">
+    <div v-if="!currentUser" class="flex flex-col items-center justify-center h-[80vh] space-y-6">
         <h1 class="text-3xl font-bold text-gray-700 tracking-widest">旅費 · 隨筆</h1>
         <p class="text-sm text-gray-500">紀錄旅行中的每一筆美好</p>
         
@@ -124,7 +133,7 @@
             </div>
 
             <div class="space-y-3 pb-20">
-                <div v-for="exp in tripExpenses" :key="exp.id" class="glass-card p-4 flex justify-between items-center group">
+                <div v-for="exp in tripExpenses" :key="exp.id" @click="openEditExpense(exp)" class="glass-card p-4 flex justify-between items-center group cursor-pointer hover:bg-white/90 transition">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl shadow-inner">
                             {{ getCategoryIcon(exp.category) }}
@@ -175,7 +184,7 @@
     <div v-if="showExpenseModal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center">
         <div class="glass-card w-full max-w-md rounded-b-none sm:rounded-2xl p-6 h-[85vh] sm:h-auto overflow-y-auto animate-slide-up">
             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold">記一筆</h3>
+                <h3 class="text-xl font-bold">{{ isEditing ? '編輯費用' : '記一筆' }}</h3>
                 <button @click="showExpenseModal = false" class="text-gray-400"><i class="fas fa-times text-xl"></i></button>
             </div>
 
@@ -243,9 +252,20 @@
                 </div>
             </div>
 
-            <button @click="saveExpense" class="w-full watercolor-btn py-3 rounded-xl font-bold text-gray-800 shadow-md">
-                儲存費用
-            </button>
+            <div v-if="!isEditing">
+                <button @click="saveExpense" class="w-full watercolor-btn py-3 rounded-xl font-bold text-gray-800 shadow-md">
+                    儲存費用
+                </button>
+            </div>
+            <div v-else class="flex gap-3">
+                <button @click="deleteExpense" class="flex-1 bg-red-100 text-red-600 py-3 rounded-xl font-bold shadow-md">
+                    <i class="fas fa-trash-alt"></i> 刪除
+                </button>
+                <button @click="updateExpense" class="flex-[2] watercolor-btn py-3 rounded-xl font-bold text-gray-800 shadow-md">
+                    確認修改
+                </button>
+            </div>
+
         </div>
     </div>
 
@@ -297,7 +317,7 @@
 </div>
 
 <script>
-    // --- 【步驟 1】請在此處填入你的 FIREBASE 設定 ---
+    // --- 【重要】請務必再次填入你的 FIREBASE 設定 ---
     const firebaseConfig = {
   apiKey: "AIzaSyBSMNzpBI4SiECFCEt_HUaYoaGb1_gaLSI",
   authDomain: "travelcalculator-10c81.firebaseapp.com",
@@ -308,21 +328,18 @@
   measurementId: "G-N1G80VWVT7"
 };
 
-    // 初始化 Firebase
-    // 如果使用者還沒填入 key，這裡會報錯，我們做個簡單的檢查
     let db;
     if (firebaseConfig.apiKey === "YOUR_API_KEY") {
-        alert("請先在 index.html 程式碼中填入您的 Firebase Config！(請看程式碼第 265 行)");
+        alert("請記得在 index.html 程式碼中再次填入您的 Firebase Config！");
     } else {
         firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
     }
 
-    const { createApp, ref, computed, onMounted, watch } = Vue;
+    const { createApp, ref, computed, onMounted } = Vue;
 
     createApp({
         setup() {
-            // --- 狀態變數 ---
             const currentUser = ref(JSON.parse(localStorage.getItem('travel_user')) || null);
             const loginName = ref('');
             const selectedAvatar = ref('🦊');
@@ -332,16 +349,17 @@
             const currentTrip = ref(null);
             const tripExpenses = ref([]);
             
-            // Modal 控制
             const showNewTripModal = ref(false);
             const showExpenseModal = ref(false);
             const showSettlement = ref(false);
 
-            // 匯率 API (使用免費 API，這裡做簡單緩存)
-            const currencies = ['TWD', 'USD', 'EUR', 'JPY', 'KRW', 'THB', 'HKD'];
-            const exchangeRates = ref({ TWD: 1 }); // 以 TWD 為基準
+            // 編輯狀態管理
+            const isEditing = ref(false);
+            const currentExpenseId = ref(null);
 
-            // 新增資料結構
+            const currencies = ['TWD', 'USD', 'EUR', 'JPY', 'KRW', 'THB', 'HKD'];
+            const exchangeRates = ref({ TWD: 1 });
+
             const newTrip = ref({ name: '', startDate: '', endDate: '' });
             const categories = [
                 {name: '交通', icon: '🚄'}, 
@@ -359,12 +377,9 @@
                 category: '飲食',
                 note: '',
                 payer: null,
-                splitTo: [] // array of names
+                splitTo: []
             });
 
-            // --- 方法 ---
-
-            // 1. 登入 (簡易版：存 LocalStorage)
             const login = () => {
                 const user = { name: loginName.value, avatar: selectedAvatar.value };
                 currentUser.value = user;
@@ -372,27 +387,18 @@
                 loadTrips();
             };
 
-            // 2. 獲取匯率
             const fetchRates = async () => {
                 try {
-                    // 使用 ExchangeRate-API (免費版)
                     const res = await fetch('https://open.er-api.com/v6/latest/TWD');
                     const data = await res.json();
-                    // API 回傳的是 1 TWD = ? 外幣，我們需要 1 外幣 = ? TWD
-                    // 所以是 1 / rate
                     currencies.forEach(c => {
                         if (data.rates[c]) {
-                            // 這裡我們預設存入的是 "1單位外幣等於多少台幣"
-                            // 例如 USD rate 若是 0.03 (1 TWD = 0.03 USD), 則 1 USD = 33.3 TWD
                             exchangeRates.value[c] = 1 / data.rates[c];
                         }
                     });
-                } catch (e) {
-                    console.error("匯率抓取失敗，使用預設值", e);
-                }
+                } catch (e) { console.error(e); }
             };
 
-            // 3. Firebase 操作：讀取旅程
             const loadTrips = () => {
                 if(!db) return;
                 db.collection('trips').orderBy('createdAt', 'desc').onSnapshot(snap => {
@@ -400,27 +406,22 @@
                 });
             };
 
-            // 4. 建立旅程
             const createTrip = async () => {
                 if(!newTrip.value.name) return;
                 const tripData = {
                     name: newTrip.value.name,
                     startDate: newTrip.value.startDate,
                     endDate: newTrip.value.endDate,
-                    users: [currentUser.value], // 初始只有創建者
+                    users: [currentUser.value],
                     createdAt: new Date().toISOString()
                 };
-                
-                // 寫入 Firestore
-                const docRef = await db.collection('trips').add(tripData);
+                await db.collection('trips').add(tripData);
                 showNewTripModal.value = false;
                 newTrip.value = { name: '', startDate: '', endDate: '' };
             };
 
-            // 5. 選擇旅程並進入
             const selectTrip = (trip) => {
                 currentTrip.value = trip;
-                // 如果自己不在這個旅程的 users 列表裡，把自己加進去 (簡單的加入機制)
                 const isMember = trip.users.find(u => u.name === currentUser.value.name);
                 if (!isMember) {
                     const updatedUsers = [...trip.users, currentUser.value];
@@ -430,32 +431,51 @@
                 loadExpenses(trip.id);
             };
 
-            // 6. 讀取費用
+            // 修正版：前端排序，解決 Firebase 索引錯誤
             const loadExpenses = (tripId) => {
                 db.collection('expenses')
                   .where('tripId', '==', tripId)
-                  .orderBy('date', 'desc') // 需建立索引，若報錯先拿掉 orderBy
                   .onSnapshot(snap => {
-                      tripExpenses.value = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                      let list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                      // 前端依照 timestamp 排序 (新的在上面)
+                      list.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                      tripExpenses.value = list;
                   });
             };
 
-            // 7. 開啟新增費用視窗
+            // 開啟新增模式
             const openAddExpense = () => {
-                // 重置表單
+                isEditing.value = false;
+                currentExpenseId.value = null;
                 newExp.value = {
                     amount: null,
                     currency: 'TWD',
                     rate: 1,
                     category: '飲食',
                     note: '',
-                    payer: currentUser.value, // 預設自己付
-                    splitTo: currentTrip.value.users.map(u => u.name) // 預設平分給所有人
+                    payer: currentUser.value,
+                    splitTo: currentTrip.value.users.map(u => u.name)
                 };
                 showExpenseModal.value = true;
             };
 
-            // 8. 更新匯率
+            // 開啟編輯模式
+            const openEditExpense = (exp) => {
+                isEditing.value = true;
+                currentExpenseId.value = exp.id;
+                // 深拷貝資料，避免直接改動顯示
+                newExp.value = {
+                    amount: exp.originalAmount,
+                    currency: exp.currency,
+                    rate: exp.rate,
+                    category: exp.category,
+                    note: exp.note,
+                    payer: exp.payer,
+                    splitTo: [...exp.splitTo] // 複製陣列
+                };
+                showExpenseModal.value = true;
+            };
+
             const updateRate = () => {
                 const cur = newExp.value.currency;
                 if(exchangeRates.value[cur]) {
@@ -463,10 +483,9 @@
                 }
             };
 
-            // 9. 儲存費用
+            // 新增功能：儲存
             const saveExpense = async () => {
                 if(!newExp.value.amount) return;
-                
                 const expenseData = {
                     tripId: currentTrip.value.id,
                     amountTWD: Math.round(newExp.value.amount * newExp.value.rate),
@@ -480,12 +499,36 @@
                     date: new Date().toLocaleDateString('zh-TW'),
                     timestamp: new Date().toISOString()
                 };
-
                 await db.collection('expenses').add(expenseData);
                 showExpenseModal.value = false;
             };
 
-            // 輔助功能
+            // 新增功能：更新
+            const updateExpense = async () => {
+                if(!currentExpenseId.value) return;
+                const expenseData = {
+                    amountTWD: Math.round(newExp.value.amount * newExp.value.rate),
+                    originalAmount: newExp.value.amount,
+                    currency: newExp.value.currency,
+                    rate: newExp.value.rate,
+                    category: newExp.value.category,
+                    note: newExp.value.note,
+                    payer: newExp.value.payer,
+                    splitTo: newExp.value.splitTo
+                };
+                await db.collection('expenses').doc(currentExpenseId.value).update(expenseData);
+                showExpenseModal.value = false;
+            };
+
+            // 新增功能：刪除
+            const deleteExpense = async () => {
+                if(!currentExpenseId.value) return;
+                if(confirm('確定要刪除這筆費用嗎？刪除後無法復原喔！')) {
+                    await db.collection('expenses').doc(currentExpenseId.value).delete();
+                    showExpenseModal.value = false;
+                }
+            };
+
             const toggleSplitUser = (user) => {
                 const idx = newExp.value.splitTo.indexOf(user.name);
                 if(idx > -1) newExp.value.splitTo.splice(idx, 1);
@@ -504,8 +547,6 @@
                 return cat ? cat.icon : '💰';
             };
 
-            // --- 計算邏輯 (Computed) ---
-
             const totalTripExpense = computed(() => {
                 return tripExpenses.value.reduce((sum, item) => sum + item.amountTWD, 0);
             });
@@ -518,69 +559,40 @@
                 return totals;
             });
 
-            // 核心結算邏輯
             const userStats = computed(() => {
                 if(!currentTrip.value) return [];
                 const stats = {};
-                // 初始化
                 currentTrip.value.users.forEach(u => {
                     stats[u.name] = { name: u.name, avatar: u.avatar, paid: 0, share: 0, balance: 0 };
                 });
-
                 tripExpenses.value.forEach(exp => {
-                    // 誰付了錢 (Credit)
-                    if(stats[exp.payer.name]) {
-                        stats[exp.payer.name].paid += exp.amountTWD;
-                    }
-
-                    // 誰該分攤 (Debit)
+                    if(stats[exp.payer.name]) stats[exp.payer.name].paid += exp.amountTWD;
                     const splitCount = exp.splitTo.length;
                     if(splitCount > 0) {
                         const shareAmount = exp.amountTWD / splitCount;
                         exp.splitTo.forEach(name => {
-                            if(stats[name]) {
-                                stats[name].share += shareAmount;
-                            }
+                            if(stats[name]) stats[name].share += shareAmount;
                         });
                     }
                 });
-
-                // 計算 Balance (正數代表該收錢，負數代表該付錢)
-                Object.values(stats).forEach(s => {
-                    s.balance = s.paid - s.share;
-                });
-
+                Object.values(stats).forEach(s => s.balance = s.paid - s.share);
                 return Object.values(stats);
             });
 
             const debts = computed(() => {
-                // 簡化版債務計算演算法
-                let debtors = userStats.value.filter(s => s.balance < -1).map(s => ({...s})); // 欠錢的
-                let creditors = userStats.value.filter(s => s.balance > 1).map(s => ({...s})); // 收錢的
-                
-                // 排序，從大到小處理
+                let debtors = userStats.value.filter(s => s.balance < -1).map(s => ({...s}));
+                let creditors = userStats.value.filter(s => s.balance > 1).map(s => ({...s}));
                 debtors.sort((a,b) => a.balance - b.balance);
                 creditors.sort((a,b) => b.balance - a.balance);
-
                 const transactions = [];
                 let i = 0, j = 0;
-
                 while (i < debtors.length && j < creditors.length) {
                     let debtor = debtors[i];
                     let creditor = creditors[j];
-                    
-                    // 找出交易金額 (取欠款和應收的最小值)
                     let amount = Math.min(Math.abs(debtor.balance), creditor.balance);
-                    
-                    transactions.push({
-                        from: debtor.name,
-                        to: creditor.name,
-                        amount: Math.round(amount)
-                    });
-
+                    transactions.push({ from: debtor.name, to: creditor.name, amount: Math.round(amount) });
                     debtor.balance += amount;
                     creditor.balance -= amount;
-
                     if(Math.abs(debtor.balance) < 1) i++;
                     if(creditor.balance < 1) j++;
                 }
@@ -599,8 +611,9 @@
                 tripExpenses, totalTripExpense, categoryTotals,
                 showExpenseModal, openAddExpense, showSettlement,
                 currencies, newExp, categories, updateRate, saveExpense,
-                toggleSplitUser, toggleSplitAll,
-                userStats, debts
+                toggleSplitUser, toggleSplitAll, userStats, debts,
+                // New returns for edit/delete
+                openEditExpense, isEditing, updateExpense, deleteExpense
             };
         }
     }).mount('#app');
