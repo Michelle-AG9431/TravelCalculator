@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>旅費分帳 - 文青水彩版</title>
+    <title>旅費分帳 - 文青水彩版 (進階分帳)</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -37,14 +37,21 @@
         .watercolor-btn:active {
             transform: scale(0.95);
         }
-        .delete-btn {
-            background-image: linear-gradient(120deg, #fbc2eb 0%, #a6c1ee 100%); /* 比較偏紅紫色的漸層 */
-        }
         .category-tag {
             font-size: 0.75rem;
             padding: 2px 8px;
             border-radius: 12px;
             background: rgba(0,0,0,0.05);
+        }
+        /* Custom Tab Style */
+        .tab-active {
+            background-color: #bfdbfe; /* blue-200 */
+            color: #1e3a8a; /* blue-900 */
+            font-weight: bold;
+        }
+        .tab-inactive {
+            background-color: #f3f4f6; /* gray-100 */
+            color: #6b7280; /* gray-500 */
         }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -141,7 +148,8 @@
                         <div>
                             <p class="font-bold text-gray-700 leading-tight">{{ exp.note || exp.category }}</p>
                             <p class="text-xs text-gray-400 mt-0.5">
-                                {{ exp.payer.name }} 付款 • {{ exp.date }}
+                                {{ exp.payer.name }} 付款 
+                                <span v-if="exp.splitMethod === 'custom'" class="text-blue-400 ml-1">(自訂)</span>
                             </p>
                         </div>
                     </div>
@@ -182,7 +190,7 @@
     </div>
 
     <div v-if="showExpenseModal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center">
-        <div class="glass-card w-full max-w-md rounded-b-none sm:rounded-2xl p-6 h-[85vh] sm:h-auto overflow-y-auto animate-slide-up">
+        <div class="glass-card w-full max-w-md rounded-b-none sm:rounded-2xl p-6 h-[90vh] sm:h-auto overflow-y-auto animate-slide-up">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-xl font-bold">{{ isEditing ? '編輯費用' : '記一筆' }}</h3>
                 <button @click="showExpenseModal = false" class="text-gray-400"><i class="fas fa-times text-xl"></i></button>
@@ -236,24 +244,65 @@
 
             <div class="mb-6">
                 <label class="text-xs text-gray-500 block mb-2">分給誰？</label>
-                <div class="flex gap-2 mb-2">
-                    <button @click="toggleSplitAll(true)" class="text-xs px-2 py-1 bg-gray-200 rounded">全選</button>
-                    <button @click="toggleSplitAll(false)" class="text-xs px-2 py-1 bg-gray-200 rounded">全不選</button>
+                
+                <div class="flex mb-3 rounded-lg overflow-hidden border border-gray-200">
+                    <button @click="newExp.splitMethod = 'equal'" 
+                            class="flex-1 py-2 text-sm transition"
+                            :class="newExp.splitMethod === 'equal' ? 'tab-active' : 'tab-inactive'">
+                        平均分攤
+                    </button>
+                    <button @click="newExp.splitMethod = 'custom'" 
+                            class="flex-1 py-2 text-sm transition"
+                            :class="newExp.splitMethod === 'custom' ? 'tab-active' : 'tab-inactive'">
+                        自訂金額
+                    </button>
                 </div>
-                <div class="grid grid-cols-2 gap-2">
-                    <div v-for="u in currentTrip.users" :key="u.name + 'split'" 
-                         @click="toggleSplitUser(u)"
-                         :class="{'bg-green-50 border-green-300': newExp.splitTo.includes(u.name)}"
-                         class="flex items-center gap-2 p-2 rounded border border-gray-200 cursor-pointer">
-                        <div v-if="newExp.splitTo.includes(u.name)" class="text-green-500"><i class="fas fa-check-circle"></i></div>
-                        <div v-else class="text-gray-300"><i class="far fa-circle"></i></div>
-                        <span class="text-sm">{{ u.name }}</span>
+
+                <div v-if="newExp.splitMethod === 'equal'">
+                    <div class="flex gap-2 mb-2">
+                        <button @click="toggleSplitAll(true)" class="text-xs px-2 py-1 bg-gray-200 rounded">全選</button>
+                        <button @click="toggleSplitAll(false)" class="text-xs px-2 py-1 bg-gray-200 rounded">全不選</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div v-for="u in currentTrip.users" :key="u.name + 'split'" 
+                             @click="toggleSplitUser(u)"
+                             :class="{'bg-green-50 border-green-300': newExp.splitTo.includes(u.name)}"
+                             class="flex items-center gap-2 p-2 rounded border border-gray-200 cursor-pointer">
+                            <div v-if="newExp.splitTo.includes(u.name)" class="text-green-500"><i class="fas fa-check-circle"></i></div>
+                            <div v-else class="text-gray-300"><i class="far fa-circle"></i></div>
+                            <span class="text-sm">{{ u.name }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else>
+                    <div class="space-y-2 max-h-40 overflow-y-auto">
+                        <div v-for="u in currentTrip.users" :key="u.name + 'custom'" class="flex items-center justify-between p-2 border-b border-gray-100">
+                            <div class="flex items-center gap-2">
+                                <span>{{ u.avatar }}</span>
+                                <span class="text-sm">{{ u.name }}</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="text-xs text-gray-400">{{ newExp.currency }}</span>
+                                <input type="number" 
+                                       v-model.number="newExp.customAmounts[u.name]" 
+                                       class="w-24 p-1 bg-gray-50 border rounded text-right text-sm" 
+                                       placeholder="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-right text-sm font-bold">
+                        <span :class="remainingAmount === 0 ? 'text-green-500' : 'text-red-500'">
+                            {{ remainingAmount === 0 ? '已分配完畢' : (remainingAmount > 0 ? `還有 ${formatMoney(remainingAmount)} 未分` : `超分了 ${formatMoney(Math.abs(remainingAmount))}`) }}
+                        </span>
                     </div>
                 </div>
             </div>
 
             <div v-if="!isEditing">
-                <button @click="saveExpense" class="w-full watercolor-btn py-3 rounded-xl font-bold text-gray-800 shadow-md">
+                <button @click="saveExpense" 
+                    :disabled="newExp.splitMethod === 'custom' && remainingAmount !== 0"
+                    class="w-full watercolor-btn py-3 rounded-xl font-bold text-gray-800 shadow-md disabled:opacity-50 disabled:grayscale">
                     儲存費用
                 </button>
             </div>
@@ -261,7 +310,9 @@
                 <button @click="deleteExpense" class="flex-1 bg-red-100 text-red-600 py-3 rounded-xl font-bold shadow-md">
                     <i class="fas fa-trash-alt"></i> 刪除
                 </button>
-                <button @click="updateExpense" class="flex-[2] watercolor-btn py-3 rounded-xl font-bold text-gray-800 shadow-md">
+                <button @click="updateExpense" 
+                    :disabled="newExp.splitMethod === 'custom' && remainingAmount !== 0"
+                    class="flex-[2] watercolor-btn py-3 rounded-xl font-bold text-gray-800 shadow-md disabled:opacity-50 disabled:grayscale">
                     確認修改
                 </button>
             </div>
@@ -317,7 +368,6 @@
 </div>
 
 <script>
-    // --- 【重要】請務必再次填入你的 FIREBASE 設定 ---
     const firebaseConfig = {
   apiKey: "AIzaSyBSMNzpBI4SiECFCEt_HUaYoaGb1_gaLSI",
   authDomain: "travelcalculator-10c81.firebaseapp.com",
@@ -353,7 +403,6 @@
             const showExpenseModal = ref(false);
             const showSettlement = ref(false);
 
-            // 編輯狀態管理
             const isEditing = ref(false);
             const currentExpenseId = ref(null);
 
@@ -370,6 +419,7 @@
                 {name: '其他', icon: '✨'}
             ];
             
+            // newExp 新增 splitMethod 和 customAmounts
             const newExp = ref({
                 amount: null,
                 currency: 'TWD',
@@ -377,7 +427,9 @@
                 category: '飲食',
                 note: '',
                 payer: null,
-                splitTo: []
+                splitMethod: 'equal', // 'equal' or 'custom'
+                splitTo: [], 
+                customAmounts: {} // { name: amount }
             });
 
             const login = () => {
@@ -431,13 +483,11 @@
                 loadExpenses(trip.id);
             };
 
-            // 修正版：前端排序，解決 Firebase 索引錯誤
             const loadExpenses = (tripId) => {
                 db.collection('expenses')
                   .where('tripId', '==', tripId)
                   .onSnapshot(snap => {
                       let list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                      // 前端依照 timestamp 排序 (新的在上面)
                       list.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                       tripExpenses.value = list;
                   });
@@ -447,6 +497,10 @@
             const openAddExpense = () => {
                 isEditing.value = false;
                 currentExpenseId.value = null;
+                // 初始化 customAmounts
+                let initialCustom = {};
+                currentTrip.value.users.forEach(u => initialCustom[u.name] = 0);
+
                 newExp.value = {
                     amount: null,
                     currency: 'TWD',
@@ -454,7 +508,9 @@
                     category: '飲食',
                     note: '',
                     payer: currentUser.value,
-                    splitTo: currentTrip.value.users.map(u => u.name)
+                    splitMethod: 'equal',
+                    splitTo: currentTrip.value.users.map(u => u.name),
+                    customAmounts: initialCustom
                 };
                 showExpenseModal.value = true;
             };
@@ -463,7 +519,13 @@
             const openEditExpense = (exp) => {
                 isEditing.value = true;
                 currentExpenseId.value = exp.id;
-                // 深拷貝資料，避免直接改動顯示
+                
+                // 確保舊資料也有 customAmounts 結構
+                let loadedCustom = exp.customAmounts || {};
+                currentTrip.value.users.forEach(u => {
+                    if(loadedCustom[u.name] === undefined) loadedCustom[u.name] = 0;
+                });
+
                 newExp.value = {
                     amount: exp.originalAmount,
                     currency: exp.currency,
@@ -471,7 +533,9 @@
                     category: exp.category,
                     note: exp.note,
                     payer: exp.payer,
-                    splitTo: [...exp.splitTo] // 複製陣列
+                    splitMethod: exp.splitMethod || 'equal',
+                    splitTo: [...(exp.splitTo || [])],
+                    customAmounts: loadedCustom
                 };
                 showExpenseModal.value = true;
             };
@@ -483,11 +547,19 @@
                 }
             };
 
-            // 新增功能：儲存
-            const saveExpense = async () => {
-                if(!newExp.value.amount) return;
-                const expenseData = {
-                    tripId: currentTrip.value.id,
+            // 輔助：計算剩餘金額 (for Custom Split)
+            const remainingAmount = computed(() => {
+                if(!newExp.value.amount) return 0;
+                let assigned = 0;
+                for (let name in newExp.value.customAmounts) {
+                    assigned += (newExp.value.customAmounts[name] || 0);
+                }
+                // 解決浮點數誤差
+                return parseFloat((newExp.value.amount - assigned).toFixed(2));
+            });
+
+            const getExpenseDataObj = () => {
+                 return {
                     amountTWD: Math.round(newExp.value.amount * newExp.value.rate),
                     originalAmount: newExp.value.amount,
                     currency: newExp.value.currency,
@@ -495,7 +567,19 @@
                     category: newExp.value.category,
                     note: newExp.value.note,
                     payer: newExp.value.payer,
+                    // 新增欄位
+                    splitMethod: newExp.value.splitMethod,
                     splitTo: newExp.value.splitTo,
+                    customAmounts: newExp.value.customAmounts
+                };
+            };
+
+            const saveExpense = async () => {
+                if(!newExp.value.amount) return;
+                const baseData = getExpenseDataObj();
+                const expenseData = {
+                    ...baseData,
+                    tripId: currentTrip.value.id,
                     date: new Date().toLocaleDateString('zh-TW'),
                     timestamp: new Date().toISOString()
                 };
@@ -503,24 +587,13 @@
                 showExpenseModal.value = false;
             };
 
-            // 新增功能：更新
             const updateExpense = async () => {
                 if(!currentExpenseId.value) return;
-                const expenseData = {
-                    amountTWD: Math.round(newExp.value.amount * newExp.value.rate),
-                    originalAmount: newExp.value.amount,
-                    currency: newExp.value.currency,
-                    rate: newExp.value.rate,
-                    category: newExp.value.category,
-                    note: newExp.value.note,
-                    payer: newExp.value.payer,
-                    splitTo: newExp.value.splitTo
-                };
+                const expenseData = getExpenseDataObj();
                 await db.collection('expenses').doc(currentExpenseId.value).update(expenseData);
                 showExpenseModal.value = false;
             };
 
-            // 新增功能：刪除
             const deleteExpense = async () => {
                 if(!currentExpenseId.value) return;
                 if(confirm('確定要刪除這筆費用嗎？刪除後無法復原喔！')) {
@@ -559,22 +632,42 @@
                 return totals;
             });
 
+            // --- 核心邏輯修改：支援自訂分帳 ---
             const userStats = computed(() => {
                 if(!currentTrip.value) return [];
                 const stats = {};
                 currentTrip.value.users.forEach(u => {
                     stats[u.name] = { name: u.name, avatar: u.avatar, paid: 0, share: 0, balance: 0 };
                 });
+                
                 tripExpenses.value.forEach(exp => {
+                    // 1. 誰先墊付
                     if(stats[exp.payer.name]) stats[exp.payer.name].paid += exp.amountTWD;
-                    const splitCount = exp.splitTo.length;
-                    if(splitCount > 0) {
-                        const shareAmount = exp.amountTWD / splitCount;
-                        exp.splitTo.forEach(name => {
-                            if(stats[name]) stats[name].share += shareAmount;
-                        });
+
+                    // 2. 誰該分攤 (區分兩種模式)
+                    if (exp.splitMethod === 'custom') {
+                        // 模式 B: 自訂金額 (依照該筆費用的匯率換算回台幣)
+                        if(exp.customAmounts) {
+                            for(let name in exp.customAmounts) {
+                                if(stats[name]) {
+                                    // 原幣別金額 * 匯率 = 台幣應付額
+                                    const shareTWD = Math.round((exp.customAmounts[name] || 0) * exp.rate);
+                                    stats[name].share += shareTWD;
+                                }
+                            }
+                        }
+                    } else {
+                        // 模式 A: 平均分攤 (預設)
+                        const splitCount = (exp.splitTo || []).length;
+                        if(splitCount > 0) {
+                            const shareAmount = exp.amountTWD / splitCount;
+                            (exp.splitTo || []).forEach(name => {
+                                if(stats[name]) stats[name].share += shareAmount;
+                            });
+                        }
                     }
                 });
+
                 Object.values(stats).forEach(s => s.balance = s.paid - s.share);
                 return Object.values(stats);
             });
@@ -612,8 +705,8 @@
                 showExpenseModal, openAddExpense, showSettlement,
                 currencies, newExp, categories, updateRate, saveExpense,
                 toggleSplitUser, toggleSplitAll, userStats, debts,
-                // New returns for edit/delete
-                openEditExpense, isEditing, updateExpense, deleteExpense
+                openEditExpense, isEditing, updateExpense, deleteExpense,
+                remainingAmount // New
             };
         }
     }).mount('#app');
