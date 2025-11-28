@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>旅費分帳 - 文青水彩版 (含圖片預覽)</title>
+    <title>旅費分帳 - 文青水彩版 (UI優化版)</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -69,8 +69,13 @@
             object-fit: cover;
             border-radius: 10px;
             border: 1px solid #ddd;
-            cursor: zoom-in; /* 提示可以放大 */
+            cursor: zoom-in;
         }
+
+        /* 讓 Modal 內部的捲軸好看一點 */
+        .modal-scroll::-webkit-scrollbar { width: 6px; }
+        .modal-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 10px; }
+        .modal-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -217,8 +222,10 @@
         </div>
     </div>
 
-    <div v-if="showTripModal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="glass-card p-6 w-full max-w-sm">
+    <div v-if="showTripModal" 
+         @click.self="showTripModal = false"
+         class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-card p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto modal-scroll">
             <h3 class="text-xl font-bold mb-4">{{ tripForm.id ? '編輯旅程' : '建立新旅程' }}</h3>
             <input v-model="tripForm.name" class="w-full p-2 mb-3 bg-white/50 border rounded" placeholder="旅程名稱 (如: 大阪行)">
             <div class="flex gap-2 mb-4">
@@ -239,8 +246,10 @@
         </div>
     </div>
 
-    <div v-if="showManagementModal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="glass-card p-6 w-full max-w-sm animate-slide-up">
+    <div v-if="showManagementModal" 
+         @click.self="showManagementModal = false"
+         class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-card p-6 w-full max-w-sm animate-slide-up max-h-[90vh] overflow-y-auto modal-scroll">
             <div class="flex justify-between items-center mb-6">
                 <h3 class="text-xl font-bold">旅程管理</h3>
                 <button @click="showManagementModal = false" class="text-gray-400"><i class="fas fa-times"></i></button>
@@ -267,8 +276,11 @@
         </div>
     </div>
 
-    <div v-if="showExpenseModal" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center">
-        <div class="glass-card w-full max-w-md rounded-b-none sm:rounded-2xl p-6 h-[90vh] sm:h-auto overflow-y-auto animate-slide-up">
+    <div v-if="showExpenseModal" 
+         @click.self="showExpenseModal = false"
+         class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center">
+         
+        <div class="glass-card w-full max-w-md rounded-b-none sm:rounded-2xl p-6 max-h-[90vh] overflow-y-auto modal-scroll animate-slide-up">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-xl font-bold">{{ isEditing ? '編輯費用' : '記一筆' }}</h3>
                 <button @click="showExpenseModal = false" class="text-gray-400"><i class="fas fa-times text-xl"></i></button>
@@ -412,7 +424,9 @@
         </div>
     </div>
 
-    <div v-if="showSettlement" class="fixed inset-0 bg-white z-50 overflow-y-auto p-6 animate-fade-in">
+    <div v-if="showSettlement" 
+         @click.self="showSettlement = false"
+         class="fixed inset-0 bg-white z-50 overflow-y-auto p-6 animate-fade-in">
         <div class="max-w-md mx-auto">
             <div class="flex justify-between items-center mb-8">
                 <h2 class="text-2xl font-bold">結算報表</h2>
