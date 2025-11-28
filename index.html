@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>旅費分帳 - 文青水彩版 (含收據上傳)</title>
+    <title>旅費分帳 - 文青水彩版 (含圖片預覽)</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -53,7 +53,6 @@
             padding: 4px;
         }
 
-        /* 圖片上傳相關樣式 */
         .upload-box {
             border: 2px dashed #cbd5e1;
             border-radius: 12px;
@@ -70,6 +69,7 @@
             object-fit: cover;
             border-radius: 10px;
             border: 1px solid #ddd;
+            cursor: zoom-in; /* 提示可以放大 */
         }
 
         ::-webkit-scrollbar { width: 6px; }
@@ -77,6 +77,8 @@
         ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
         .animate-slide-up { animation: slideUp 0.3s ease-out; }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body class="pb-24">
@@ -171,7 +173,9 @@
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl shadow-inner relative">
                             {{ getCategoryIcon(exp.category) }}
-                            <div v-if="exp.imageUrl" class="absolute -top-1 -right-1 text-blue-500 bg-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] shadow-sm">
+                            <div v-if="exp.imageUrl" 
+                                 @click.stop="openImage(exp.imageUrl)"
+                                 class="absolute -top-1 -right-1 text-blue-500 bg-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow-md border hover:scale-110 transition z-10">
                                 <i class="fas fa-paperclip"></i>
                             </div>
                         </div>
@@ -201,6 +205,15 @@
                     <i class="fas fa-plus"></i> 新增費用
                 </button>
             </div>
+        </div>
+    </div>
+
+    <div v-if="previewImageUrl" class="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4 animate-fade-in" @click="previewImageUrl = null">
+        <div class="relative max-w-full max-h-full">
+            <img :src="previewImageUrl" class="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl">
+            <button class="absolute -top-10 right-0 text-white text-3xl hover:text-gray-300">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
     </div>
 
@@ -267,7 +280,7 @@
                 <label class="text-xs text-gray-500 block mb-2">單據照片</label>
                 
                 <div v-if="newExp.imageUrl" class="relative">
-                    <img :src="newExp.imageUrl" class="image-preview" alt="Receipt">
+                    <img :src="newExp.imageUrl" @click="openImage(newExp.imageUrl)" class="image-preview" alt="Receipt">
                     <button v-if="!isTripReadOnly" @click="removeImage" class="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 shadow-sm">
                         <i class="fas fa-trash"></i>
                     </button>
@@ -455,14 +468,14 @@
 };
 
     let db;
-    let storage; // 新增 Storage 變數
+    let storage;
 
     if (firebaseConfig.apiKey === "YOUR_API_KEY") {
         alert("請記得在 index.html 程式碼中再次填入您的 Firebase Config！");
     } else {
         firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
-        storage = firebase.storage(); // 初始化 Storage
+        storage = firebase.storage();
     }
 
     const { createApp, ref, computed, onMounted } = Vue;
@@ -482,11 +495,12 @@
             const showExpenseModal = ref(false);
             const showSettlement = ref(false);
             const showManagementModal = ref(false);
+            
+            // 預覽圖片變數
+            const previewImageUrl = ref(null);
 
             const isEditing = ref(false);
             const currentExpenseId = ref(null);
-            
-            // 圖片上傳相關狀態
             const isUploading = ref(false);
 
             const currencies = ['TWD', 'USD', 'EUR', 'JPY', 'KRW', 'THB', 'HKD'];
@@ -503,7 +517,7 @@
             const newExp = ref({
                 amount: null, currency: 'TWD', rate: 1, category: '飲食', note: '', payer: null,
                 splitMethod: 'equal', splitTo: [], customAmounts: {},
-                imageUrl: '' // 新增圖片欄位
+                imageUrl: ''
             });
 
             const isTripReadOnly = computed(() => {
@@ -647,11 +661,16 @@
                   });
             };
 
+            // 開啟全螢幕圖片
+            const openImage = (url) => {
+                if(url) previewImageUrl.value = url;
+            };
+
             const openAddExpense = () => {
                 if(isTripReadOnly.value) return;
                 isEditing.value = false;
                 currentExpenseId.value = null;
-                isUploading.value = false; // 重置上傳狀態
+                isUploading.value = false;
                 let initialCustom = {};
                 currentTrip.value.users.forEach(u => initialCustom[u.name] = 0);
                 newExp.value = {
@@ -671,14 +690,11 @@
                 newExp.value = {
                     amount: exp.originalAmount, currency: exp.currency, rate: exp.rate, category: exp.category, note: exp.note, payer: exp.payer,
                     splitMethod: exp.splitMethod || 'equal', splitTo: [...(exp.splitTo || [])], customAmounts: loadedCustom,
-                    imageUrl: exp.imageUrl || '' // 載入圖片
+                    imageUrl: exp.imageUrl || ''
                 };
                 showExpenseModal.value = true;
             };
 
-            // --- 圖片處理邏輯 ---
-
-            // 壓縮圖片 helper
             const resizeImage = (file) => {
                 return new Promise((resolve) => {
                     const reader = new FileReader();
@@ -686,7 +702,7 @@
                         const img = new Image();
                         img.onload = () => {
                             const canvas = document.createElement('canvas');
-                            const MAX_WIDTH = 800; // 壓縮最大寬度
+                            const MAX_WIDTH = 800;
                             let width = img.width;
                             let height = img.height;
                             if (width > MAX_WIDTH) {
@@ -713,22 +729,15 @@
 
                 isUploading.value = true;
                 try {
-                    // 1. 壓縮圖片
                     const resizedBlob = await resizeImage(file);
-                    
-                    // 2. 建立 Storage 路徑
                     const filename = `${Date.now()}_${file.name}`;
                     const storageRef = storage.ref().child(`receipts/${currentTrip.value.id}/${filename}`);
-                    
-                    // 3. 上傳
                     const snapshot = await storageRef.put(resizedBlob);
-                    
-                    // 4. 取得連結
                     const url = await snapshot.ref.getDownloadURL();
                     newExp.value.imageUrl = url;
                 } catch (error) {
                     console.error("Upload failed", error);
-                    alert("圖片上傳失敗，請檢查 Firebase Storage 是否已開啟 (Test Mode)");
+                    alert("圖片上傳失敗，請檢查 Firebase Storage 設定");
                 } finally {
                     isUploading.value = false;
                 }
@@ -739,8 +748,6 @@
                     newExp.value.imageUrl = '';
                 }
             };
-
-            // ------------------
 
             const updateRateFromSettings = () => {
                 const cur = newExp.value.currency;
@@ -768,7 +775,7 @@
                     splitMethod: newExp.value.splitMethod,
                     splitTo: newExp.value.splitTo,
                     customAmounts: newExp.value.customAmounts,
-                    imageUrl: newExp.value.imageUrl // 儲存圖片連結
+                    imageUrl: newExp.value.imageUrl
                 };
             };
 
@@ -880,8 +887,8 @@
                 openEditExpense, isEditing, updateExpense, deleteExpense, remainingAmount,
                 openManagement, fetchLiveRatesForManagement, editingRates, saveManagementSettings,
                 formatDate, formatMoney, getCategoryIcon,
-                // Image related
-                isUploading, handleFileUpload, removeImage
+                isUploading, handleFileUpload, removeImage,
+                previewImageUrl, openImage // New exports
             };
         }
     }).mount('#app');
