@@ -869,22 +869,24 @@
                 if(currentUser.value) loadTrips();
             });
 
-            return {
-                currentUser, loginName, avatars, selectedAvatar, login,
-                trips, currentTrip, tripExpenses, totalTripExpense, categoryTotals,
-                showTripModal, showExpenseModal, showSettlement, showManagementModal,
-                openNewTripModal, openEditTripModal, createTrip, updateTrip, deleteTrip, selectTrip, exitTrip,
-                isTripReadOnly,
-                tripForm, currencies, newExp, categories, updateRateFromSettings, saveExpense,
-                toggleSplitUser, toggleSplitAll, userStats, debts,
-                openEditExpense, isEditing, updateExpense, deleteExpense, remainingAmount,
-                openManagement, fetchLiveRatesForManagement, editingRates, saveManagementSettings,
-                formatDate, formatMoney, getCategoryIcon,
-                // Image related
-                isUploading, handleFileUpload, removeImage
-            };
+          return {
+    currentUser, loginName, avatars, selectedAvatar, login,
+    trips, currentTrip, tripExpenses, totalTripExpense, categoryTotals,
+    showTripModal, showExpenseModal, showSettlement, showManagementModal,
+    openNewTripModal, openEditTripModal, createTrip, updateTrip, deleteTrip, selectTrip, exitTrip,
+    isTripReadOnly,
+    tripForm, currencies, newExp, categories, updateRateFromSettings, saveExpense,
+    toggleSplitUser, toggleSplitAll, userStats, debts,
+    openEditExpense, isEditing, updateExpense, deleteExpense, remainingAmount,
+    openManagement, fetchLiveRatesForManagement, editingRates, saveManagementSettings,
+    formatDate, formatMoney, getCategoryIcon,
+    // Image related
+    isUploading, handleFileUpload, removeImage,
+    openAddExpense // <--- 補上這一行，問題就解決了！
+};
         }
     }).mount('#app');
 </script>
 </body>
 </html>
+
