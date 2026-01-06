@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>旅費分帳 - 文青水彩版 (UI優化版)</title>
+    <title>旅費分帳 - 文青水彩版 (修復版)</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -72,7 +72,6 @@
             cursor: zoom-in;
         }
 
-        /* 讓 Modal 內部的捲軸好看一點 */
         .modal-scroll::-webkit-scrollbar { width: 6px; }
         .modal-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 10px; }
         .modal-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -472,14 +471,13 @@
 <script>
     // --- 【重要】請務必再次填入你的 FIREBASE 設定 ---
     const firebaseConfig = {
-  apiKey: "AIzaSyBSMNzpBI4SiECFCEt_HUaYoaGb1_gaLSI",
-  authDomain: "travelcalculator-10c81.firebaseapp.com",
-  projectId: "travelcalculator-10c81",
-  storageBucket: "travelcalculator-10c81.firebasestorage.app",
-  messagingSenderId: "776646417150",
-  appId: "1:776646417150:web:e8be691a3eb7ad8d1723af",
-  measurementId: "G-N1G80VWVT7"
-};
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+        projectId: "YOUR_PROJECT_ID",
+        storageBucket: "YOUR_PROJECT_ID.appspot.com", // <-- 請確認此行是否存在
+        messagingSenderId: "YOUR_SENDER_ID",
+        appId: "YOUR_APP_ID"
+    };
 
     let db;
     let storage;
@@ -796,116 +794,4 @@
             const saveExpense = async () => {
                 if(!newExp.value.amount) return;
                 const baseData = getExpenseDataObj();
-                const expenseData = { ...baseData, tripId: currentTrip.value.id, date: new Date().toLocaleDateString('zh-TW'), timestamp: new Date().toISOString() };
-                await db.collection('expenses').add(expenseData);
-                showExpenseModal.value = false;
-            };
-
-            const updateExpense = async () => {
-                if(!currentExpenseId.value) return;
-                const expenseData = getExpenseDataObj();
-                await db.collection('expenses').doc(currentExpenseId.value).update(expenseData);
-                showExpenseModal.value = false;
-            };
-
-            const deleteExpense = async () => {
-                if(!currentExpenseId.value) return;
-                if(confirm('確定要刪除這筆費用嗎？刪除後無法復原喔！')) {
-                    await db.collection('expenses').doc(currentExpenseId.value).delete();
-                    showExpenseModal.value = false;
-                }
-            };
-
-            const toggleSplitUser = (user) => {
-                const idx = newExp.value.splitTo.indexOf(user.name);
-                if(idx > -1) newExp.value.splitTo.splice(idx, 1);
-                else newExp.value.splitTo.push(user.name);
-            };
-
-            const toggleSplitAll = (select) => {
-                if(select) newExp.value.splitTo = currentTrip.value.users.map(u => u.name);
-                else newExp.value.splitTo = [];
-            };
-
-            const formatDate = (d) => d ? d.replace(/-/g, '/') : '';
-            const formatMoney = (n) => n ? n.toLocaleString() : '0';
-            const getCategoryIcon = (catName) => {
-                const cat = categories.find(c => c.name === catName);
-                return cat ? cat.icon : '💰';
-            };
-
-            const totalTripExpense = computed(() => tripExpenses.value.reduce((sum, item) => sum + item.amountTWD, 0));
-            const categoryTotals = computed(() => {
-                const totals = {};
-                tripExpenses.value.forEach(exp => totals[exp.category] = (totals[exp.category] || 0) + exp.amountTWD);
-                return totals;
-            });
-
-            const userStats = computed(() => {
-                if(!currentTrip.value) return [];
-                const stats = {};
-                currentTrip.value.users.forEach(u => stats[u.name] = { name: u.name, avatar: u.avatar, paid: 0, share: 0, balance: 0 });
-                tripExpenses.value.forEach(exp => {
-                    if(stats[exp.payer.name]) stats[exp.payer.name].paid += exp.amountTWD;
-                    if (exp.splitMethod === 'custom') {
-                        if(exp.customAmounts) {
-                            for(let name in exp.customAmounts) {
-                                if(stats[name]) stats[name].share += Math.round((exp.customAmounts[name] || 0) * exp.rate);
-                            }
-                        }
-                    } else {
-                        const splitCount = (exp.splitTo || []).length;
-                        if(splitCount > 0) {
-                            const shareAmount = exp.amountTWD / splitCount;
-                            (exp.splitTo || []).forEach(name => { if(stats[name]) stats[name].share += shareAmount; });
-                        }
-                    }
-                });
-                Object.values(stats).forEach(s => s.balance = s.paid - s.share);
-                return Object.values(stats);
-            });
-
-            const debts = computed(() => {
-                let debtors = userStats.value.filter(s => s.balance < -1).map(s => ({...s}));
-                let creditors = userStats.value.filter(s => s.balance > 1).map(s => ({...s}));
-                debtors.sort((a,b) => a.balance - b.balance);
-                creditors.sort((a,b) => b.balance - a.balance);
-                const transactions = [];
-                let i = 0, j = 0;
-                while (i < debtors.length && j < creditors.length) {
-                    let debtor = debtors[i];
-                    let creditor = creditors[j];
-                    let amount = Math.min(Math.abs(debtor.balance), creditor.balance);
-                    transactions.push({ from: debtor.name, to: creditor.name, amount: Math.round(amount) });
-                    debtor.balance += amount;
-                    creditor.balance -= amount;
-                    if(Math.abs(debtor.balance) < 1) i++;
-                    if(creditor.balance < 1) j++;
-                }
-                return transactions;
-            });
-
-            onMounted(() => {
-                initRates();
-                if(currentUser.value) loadTrips();
-            });
-
-            return {
-                currentUser, loginName, avatars, selectedAvatar, login,
-                trips, currentTrip, tripExpenses, totalTripExpense, categoryTotals,
-                showTripModal, showExpenseModal, showSettlement, showManagementModal,
-                openNewTripModal, openEditTripModal, createTrip, updateTrip, deleteTrip, selectTrip, exitTrip,
-                isTripReadOnly,
-                tripForm, currencies, newExp, categories, updateRateFromSettings, saveExpense,
-                toggleSplitUser, toggleSplitAll, userStats, debts,
-                openEditExpense, isEditing, updateExpense, deleteExpense, remainingAmount,
-                openManagement, fetchLiveRatesForManagement, editingRates, saveManagementSettings,
-                formatDate, formatMoney, getCategoryIcon,
-                isUploading, handleFileUpload, removeImage,
-                previewImageUrl, openImage // New exports
-            };
-        }
-    }).mount('#app');
-</script>
-</body>
-</html>
+                const expenseData = { ...baseData, tripId: currentTrip.value.id, date: new Date().toLocaleDateString('zh-TW'), timestamp:
